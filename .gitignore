@@ -1,0 +1,8 @@
+recordings/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.venv*/
+*.zip
+camera_config.json

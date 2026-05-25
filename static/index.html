@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>YAM Recording Station</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <!-- Full-width recording banner -->
+  <div id="recording-banner" class="recording-banner hidden">
+    <span class="rec-banner-dot"></span>
+    <span id="rec-banner-text">RECORDING</span>
+    <span id="rec-banner-task"></span>
+    <span id="rec-banner-frames"></span>
+  </div>
+
+  <!-- Toast notifications -->
+  <div id="toast-container"></div>
+
+  <!-- ===================== HEADER ===================== -->
+  <header class="site-header">
+    <div class="header-left">
+      <span class="logo">&#x1f916; YAM Recording Station</span>
+      <nav class="tab-nav">
+        <button class="tab-btn active" data-tab="control">Control</button>
+        <button class="tab-btn" data-tab="recordings">Recordings</button>
+        <button class="tab-btn" data-tab="guide">Guide</button>
+      </nav>
+    </div>
+    <div class="status-bar">
+      <span class="status-indicator">
+        <span class="dot" id="arm0-dot"></span>
+        <span id="arm0-label">Leader 0</span>
+      </span>
+      <span class="status-indicator">
+        <span class="dot" id="arm1-dot"></span>
+        <span id="arm1-label">Leader 1</span>
+      </span>
+      <span class="status-indicator">
+        <span class="dot" id="cam-dot"></span>
+        <span id="cam-label">Cameras</span>
+      </span>
+      <span class="status-indicator">
+        <span class="dot" id="sse-dot"></span>
+        <span id="sse-label">Stream</span>
+      </span>
+    </div>
+  </header>
+
+  <!-- ===================== CONTROL VIEW ===================== -->
+  <section id="view-control" class="view active">
+
+    <!-- Camera feeds row: wrist 0, wrist 1, scene -->
+    <div class="camera-row">
+      <figure class="camera-card">
+        <figcaption>Wrist 0</figcaption>
+        <img id="cam-feed-0" class="camera-feed" src="/stream/0" alt="Wrist 0" />
+        <div class="camera-overlay" id="cam-overlay-0">No signal</div>
+      </figure>
+      <figure class="camera-card">
+        <figcaption>Wrist 1</figcaption>
+        <img id="cam-feed-1" class="camera-feed" src="/stream/1" alt="Wrist 1" />
+        <div class="camera-overlay" id="cam-overlay-1">No signal</div>
+      </figure>
+      <figure class="camera-card">
+        <figcaption>Scene</figcaption>
+        <img id="cam-feed-2" class="camera-feed" src="/stream/2" alt="Scene" />
+        <div class="camera-overlay" id="cam-overlay-2">No signal</div>
+      </figure>
+    </div>
+
+    <div class="cam-setup-panel" id="cam-setup-panel">
+      <div class="cam-setup-header" id="cam-setup-toggle">
+        <span>Camera Setup</span>
+        <span class="cam-setup-chevron" id="cam-setup-chevron">&#9660;</span>
+        <button class="btn btn-sm" id="cam-detect-btn" style="margin-left:auto">&#128247; Detect Cameras</button>
+      </div>
+      <div class="cam-setup-body" id="cam-setup-body" hidden>
+        <div class="cam-slot-grid">
+          <div class="cam-slot-row">
+            <span class="cam-slot-label">Wrist 0</span>
+            <select class="cam-slot-select" id="slot-select-wrist_0"><option value="">— none —</option></select>
+          </div>
+          <div class="cam-slot-row">
+            <span class="cam-slot-label">Wrist 1</span>
+            <select class="cam-slot-select" id="slot-select-wrist_1"><option value="">— none —</option></select>
+          </div>
+          <div class="cam-slot-row">
+            <span class="cam-slot-label">Scene</span>
+            <select class="cam-slot-select" id="slot-select-scene"><option value="">— none —</option></select>
+          </div>
+        </div>
+        <div class="cam-setup-actions">
+          <button class="btn btn-sm btn-accent" id="cam-save-btn">Save Config</button>
+          <span class="cam-setup-status" id="cam-setup-status"></span>
+        </div>
+        <div class="cam-cli-row" id="cam-cli-row" hidden>
+          <span class="cam-cli-label">Restart command:</span>
+          <code class="cam-cli-code" id="cam-cli-code"></code>
+          <button class="btn btn-sm" id="cam-cli-copy-btn" title="Copy">&#128203;</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Arm panels row -->
+    <div class="arm-row">
+      <!-- ARM 0 -->
+      <div class="arm-panel" id="arm0-panel">
+        <div class="panel-header">
+          <span>YAM 0</span>
+          <span class="arm-status-badge idle" id="arm0-badge">IDLE</span>
+          <div class="arm-btns">
+            <button class="btn btn-engage btn-sm" id="arm0-engage-btn">Engage Leader</button>
+            <button class="btn btn-sm" id="arm0-disengage-btn">Disengage</button>
+          </div>
+        </div>
+        <table class="joint-table">
+          <thead><tr><th>Joint</th><th>Actual (rad)</th><th>Cmd (rad)</th></tr></thead>
+          <tbody id="arm0-joints"></tbody>
+        </table>
+        <div class="grip-row">
+          <span class="grip-label">Grip</span>
+          <div class="grip-bar-wrap"><div class="grip-bar" id="arm0-grip-bar"></div></div>
+          <span class="grip-val" id="arm0-grip-val">—</span>
+        </div>
+      </div>
+
+      <!-- ARM 1 -->
+      <div class="arm-panel" id="arm1-panel">
+        <div class="panel-header">
+          <span>YAM 1</span>
+          <span class="arm-status-badge idle" id="arm1-badge">IDLE</span>
+          <div class="arm-btns">
+            <button class="btn btn-engage btn-sm" id="arm1-engage-btn">Engage Leader</button>
+            <button class="btn btn-sm" id="arm1-disengage-btn">Disengage</button>
+          </div>
+        </div>
+        <table class="joint-table">
+          <thead><tr><th>Joint</th><th>Actual (rad)</th><th>Cmd (rad)</th></tr></thead>
+          <tbody id="arm1-joints"></tbody>
+        </table>
+        <div class="grip-row">
+          <span class="grip-label">Grip</span>
+          <div class="grip-bar-wrap"><div class="grip-bar" id="arm1-grip-bar"></div></div>
+          <span class="grip-val" id="arm1-grip-val">—</span>
+        </div>
+      </div>
+
+      <!-- Session stats -->
+      <div class="arm-panel" id="stats-panel">
+        <div class="panel-header"><span>Session</span></div>
+        <div class="stat-grid">
+          <div class="stat-item">
+            <div class="stat-label">Dataset</div>
+            <div class="stat-value mono-sm" id="stat-dataset">—</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-label">Episodes</div>
+            <div class="stat-value" id="stat-episodes">—</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-label">Frames</div>
+            <div class="stat-value" id="stat-frames">—</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-label">Duration</div>
+            <div class="stat-value" id="stat-duration">—</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Recording controls row -->
+    <div class="record-row">
+      <div class="record-controls">
+        <div class="task-input-group">
+          <label for="task-input">Task description</label>
+          <input type="text" id="task-input" placeholder="e.g. pick and place red block" value="manipulation task" />
+        </div>
+        <div class="record-btn-group">
+          <button class="btn btn-record" id="record-btn">&#9210; Start Recording</button>
+          <button class="btn btn-discard" id="discard-btn" disabled>&#x2715; Discard</button>
+        </div>
+        <div class="recording-status">
+          <span id="rec-indicator" class="rec-dot hidden"></span>
+          <span id="rec-status-text">Stopped</span>
+          <span id="rec-frame-count" class="dim"></span>
+        </div>
+      </div>
+    </div>
+
+  </section>
+
+  <!-- ===================== RECORDINGS VIEW ===================== -->
+  <section id="view-recordings" class="view" hidden>
+    <div class="recordings-layout">
+
+      <!-- Sidebar: episode list -->
+      <aside class="episode-sidebar">
+        <div class="sidebar-header">
+          <span>Episodes</span>
+          <button class="btn btn-sm" id="refresh-episodes-btn">&#x21bb; Refresh</button>
+        </div>
+        <ul class="episode-list" id="episode-list">
+          <li class="episode-item dim">No episodes yet.</li>
+        </ul>
+      </aside>
+
+      <!-- Main: episode detail -->
+      <main class="episode-detail">
+        <div class="detail-placeholder" id="detail-placeholder">
+          <p>&#x25b6; Select an episode from the list to view and annotate.</p>
+        </div>
+
+        <div class="detail-content" id="detail-content" hidden>
+          <div class="detail-header">
+            <div>
+              <h2 id="detail-title">Episode</h2>
+              <div class="detail-meta">
+                <span id="detail-date"></span>
+                &bull;
+                <span id="detail-duration"></span>
+                &bull;
+                <span id="detail-frames"></span>
+              </div>
+              <div class="detail-task-row">
+                <span class="detail-task-label">Task:</span>
+                <span id="detail-task" class="detail-task-text">—</span>
+              </div>
+            </div>
+            <button class="btn btn-danger" id="delete-episode-btn">Delete</button>
+          </div>
+
+          <!-- Video player: 3 cameras side-by-side -->
+          <div class="video-section">
+            <div class="video-trio">
+              <div class="video-item">
+                <div class="video-label">Wrist 0</div>
+                <video id="video-wrist_0" preload="metadata"></video>
+              </div>
+              <div class="video-item">
+                <div class="video-label">Wrist 1</div>
+                <video id="video-wrist_1" preload="metadata"></video>
+              </div>
+              <div class="video-item">
+                <div class="video-label">Scene</div>
+                <video id="video-scene" preload="metadata"></video>
+              </div>
+            </div>
+            <div class="video-controls">
+              <button class="btn btn-sm" id="video-play-btn">&#9654;</button>
+              <input type="range" id="video-slider" min="0" max="1000" step="1" value="0" />
+              <span id="video-time-display">0:00</span>
+            </div>
+          </div>
+
+          <!-- Notes section -->
+          <div class="detail-notes-section">
+            <div class="notes-header">
+              <h3>Notes</h3>
+            </div>
+            <ul class="notes-list" id="notes-list">
+              <li class="dim" style="padding:8px 12px;font-size:13px">No notes yet.</li>
+            </ul>
+            <div class="add-note-form">
+              <span class="add-note-time-label">At <strong id="add-note-time">0:00</strong></span>
+              <input type="text" id="add-note-input" placeholder="Write a note about this moment…" />
+              <button class="btn btn-sm btn-accent" id="add-note-btn">Add Note</button>
+            </div>
+          </div>
+
+
+        </div>
+      </main>
+
+    </div>
+  </section>
+
+  <!-- ===================== GUIDE VIEW ===================== -->
+  <section id="view-guide" class="view" hidden>
+    <div class="guide-layout">
+
+      <div class="guide-section">
+        <h2>1 — Start the server</h2>
+        <p>SSH into the robot, then activate the environment and launch the recording server:</p>
+        <pre><code># Kill any existing server first
+pkill -f record_server.py
+
+# Activate environment
+source /home/user/robot/.venv-lerobot/bin/activate
+cd /home/user/robot
+
+# Start (single arm, execute mode)
+python record_server.py \
+  --arm0-port /dev/ttyACM0 \
+  --arm0-channel can0 \
+  --execute
+
+# Start (dual arm, execute mode)
+python record_server.py \
+  --arm0-port /dev/ttyACM0 \
+  --arm0-channel can0 \
+  --arm1-port /dev/ttyACM1 \
+  --arm1-channel can1 \
+  --execute</code></pre>
+        <p>Then open <strong>http://&lt;robot-ip&gt;:5000</strong> in your browser. Find the robot IP with:</p>
+        <pre><code>hostname -I | awk '{print $1}'</code></pre>
+        <div class="guide-tip">Always use <code>http://</code>, not <code>https://</code>. If the page looks stale, hard-refresh with <strong>Cmd+Shift+R</strong> (Mac) or <strong>Ctrl+Shift+R</strong>.</div>
+      </div>
+
+      <div class="guide-section">
+        <h2>2 — Engage the leader arm</h2>
+        <ol>
+          <li>On the <strong>Control</strong> tab, confirm the <strong>Leader 0</strong> dot in the header is green — this means the SO-101 serial connection is live.</li>
+          <li>Position the SO-101 leader arm in a comfortable starting pose.</li>
+          <li>Click <strong>Engage Leader</strong> on the YAM 0 panel.</li>
+          <li>The YAM panel border turns green and the badge changes to <span class="guide-badge-active">ACTIVE</span> — the YAM is now following the leader.</li>
+        </ol>
+        <div class="guide-tip">Engage only when the leader arm is already in the pose you want the YAM to start from — engaging snaps the YAM to the current leader position.</div>
+      </div>
+
+      <div class="guide-section">
+        <h2>3 — Record a demonstration</h2>
+        <ol>
+          <li>Type a short task description in the <strong>Task description</strong> field (e.g. <em>pick up red block and place in bowl</em>).</li>
+          <li>Click <strong>&#9210; Start Recording</strong>. A red pulsing banner appears at the top — recording is live.</li>
+          <li>Perform the task with the leader arm. The frame counter in the banner updates in real time.</li>
+          <li>Click <strong>&#9209; Stop Recording</strong> when the task is complete.</li>
+          <li>A green toast notification confirms the save: <em>Episode #N saved — X frames</em>.</li>
+        </ol>
+        <div class="guide-tip">If you make a mistake mid-episode, click <strong>&#x2715; Discard</strong> to throw away the current take and start fresh — no episode is written.</div>
+      </div>
+
+      <div class="guide-section">
+        <h2>4 — View recordings</h2>
+        <ol>
+          <li>Click the <strong>Recordings</strong> tab.</li>
+          <li>Select an episode from the left sidebar. Click <strong>&#x21bb; Refresh</strong> if a recent episode is missing.</li>
+          <li>Use the <strong>Wrist 0 / Wrist 1 / Scene</strong> tabs to switch camera angles.</li>
+          <li>Scrub the video timeline and click <strong>Add Note</strong> to annotate a moment — notes are saved alongside the dataset.</li>
+        </ol>
+      </div>
+
+      <div class="guide-section">
+        <h2>5 — Disengage &amp; shut down</h2>
+        <ol>
+          <li>Click <strong>Disengage</strong> to put the YAM back into gravity-compensation mode before moving the arm by hand.</li>
+          <li>Stop the server with <strong>Ctrl+C</strong> in the terminal — any recording in progress is auto-saved on shutdown.</li>
+        </ol>
+      </div>
+
+      <div class="guide-section">
+        <h2>Troubleshooting</h2>
+        <table class="guide-table">
+          <tr><td><strong>Leader 0 dot is red</strong></td><td>Wrong serial port or SO-101 not powered. Check <code>ls /dev/ttyACM*</code> and update <code>--arm0-port</code>.</td></tr>
+          <tr><td><strong>Engage button disabled (strikethrough cursor)</strong></td><td>Leader dot is red — arm not connected. Fix the port first.</td></tr>
+          <tr><td><strong>Start Recording → HTTP 500</strong></td><td>Dataset failed to init. Check server terminal for <code>[ERROR]</code> lines. Usually fixed by deleting <code>./recordings/</code> and restarting.</td></tr>
+          <tr><td><strong>Episode not showing in Recordings</strong></td><td>Click &#x21bb; Refresh. If still missing, check server logs for <code>save_episode error</code>.</td></tr>
+          <tr><td><strong>Video won't play</strong></td><td>Browser must support AV1. Use Chrome 90+ or Firefox 90+.</td></tr>
+        </table>
+      </div>
+
+    </div>
+  </section>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
