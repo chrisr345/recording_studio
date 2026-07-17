@@ -7,7 +7,7 @@
 //      data: { timestamp, arms:[{id,active,q_actual[7],q_cmd[7]|null,connected},...],
 //              recording, episode_frame_count, current_task, total_episodes, total_frames }
 //
-// GET  /stream/0|1|2            MJPEG camera streams
+// GET  /stream/0|1|2|3          MJPEG camera streams
 // GET  /status                  {arms:[...], cameras:[...], dataset_path, total_episodes, total_frames}
 //
 // POST /arm/<id>/engage         → {success, error}
@@ -18,7 +18,7 @@
 // POST /recording/discard       → {success}
 //
 // GET  /episodes                → [{episode_index, task, length, timestamp, duration_s,
-//                                    has_video:{wrist_0,wrist_1,scene}, notes_count}]
+//                                    has_video:{wrist_0,wrist_1,wrist_2,scene}, notes_count}]
 // GET  /episodes/<idx>          → {episode_index, task, length, fps, timestamp, duration_s,
 //                                    notes:[{id,text,timestamp_s,created_at}]}
 // GET  /episodes/<idx>/video/<cam_key>   MP4 stream
@@ -34,7 +34,7 @@ const state = {
   // SSE
   sseConnected: false,
 
-  // Arms (up to 2): [{id, active, q_actual[7], q_cmd[7]|null, connected}]
+  // Arms (up to 3): [{id, active, q_actual[7], q_cmd[7]|null, connected}]
   arms: [],
 
   // Recording
@@ -264,9 +264,10 @@ function renderArmPanel(armIdx) {
 }
 
 function renderControlView() {
-  // Render both arm panels
+  // Render all arm panels
   renderArmPanel(0);
   renderArmPanel(1);
+  renderArmPanel(2);
 
   // Session stats
   const secsTotal = state.totalFrames ? (state.totalFrames / 30) : 0;
@@ -333,7 +334,7 @@ function setupTabs() {
 
 // ── Camera image error handling ──────────────────────────
 function setupCameraFeeds() {
-  [0, 1, 2].forEach(i => {
+  [0, 1, 2, 3].forEach(i => {
     const img     = $(`cam-feed-${i}`);
     const overlay = $(`cam-overlay-${i}`);
     if (!img) return;
@@ -344,7 +345,7 @@ function setupCameraFeeds() {
 
 // ── Arm engage / disengage buttons ──────────────────────
 function setupArmControls() {
-  [0, 1].forEach(armIdx => {
+  [0, 1, 2].forEach(armIdx => {
     const engBtn  = $(`arm${armIdx}-engage-btn`);
     const disBtn  = $(`arm${armIdx}-disengage-btn`);
 
@@ -491,7 +492,7 @@ async function selectEpisode(idx) {
   }
 }
 
-const CAM_KEYS = ['wrist_0', 'wrist_1', 'scene'];
+const CAM_KEYS = ['wrist_0', 'wrist_1', 'wrist_2', 'scene'];
 
 function getVideoEl(key) { return document.getElementById('video-' + key); }
 
@@ -705,9 +706,9 @@ function setupRefreshEpisodes() {
 
 // ── Camera setup panel ───────────────────────────────────
 let _detectedCameras = [];
-let _camSlotAssignment = { wrist_0: null, wrist_1: null, scene: null };
+let _camSlotAssignment = { wrist_0: null, wrist_1: null, wrist_2: null, scene: null };
 
-const SLOT_KEYS = ['wrist_0', 'wrist_1', 'scene'];
+const SLOT_KEYS = ['wrist_0', 'wrist_1', 'wrist_2', 'scene'];
 
 function setupCameraPanel() {
   const toggleBtn = $('cam-setup-toggle');
@@ -733,7 +734,7 @@ function setupCameraPanel() {
     try {
       const data = await apiFetch('/cameras/detect');
       _detectedCameras = data.detected || [];
-      _camSlotAssignment = data.current_slots || { wrist_0: null, wrist_1: null, scene: null };
+      _camSlotAssignment = data.current_slots || { wrist_0: null, wrist_1: null, wrist_2: null, scene: null };
       _populateCameraDropdowns();
       if (data.cli_args) _showCliCommand(data.cli_args);
       body.hidden = false;
@@ -776,6 +777,32 @@ function setupCameraPanel() {
         copyBtn.textContent = '✓';
         setTimeout(() => { copyBtn.innerHTML = '&#128203;'; }, 1500);
       });
+    });
+  }
+
+  const reconnectBtn = $('cam-reconnect-scene-btn');
+  if (reconnectBtn) {
+    reconnectBtn.addEventListener('click', async e => {
+      e.stopPropagation();
+      reconnectBtn.disabled = true;
+      reconnectBtn.textContent = 'Searching…';
+      const statusEl = $('cam-setup-status');
+      try {
+        const res = await apiFetch('/cameras/reconnect-scene', { method: 'POST' });
+        if (res.success) {
+          if (statusEl) { statusEl.textContent = `Scene connected: ${res.camera.label}`; statusEl.style.color = 'var(--success)'; }
+          showToast(`Scene camera connected: ${res.camera.label}`, 'success');
+          body.hidden = false;
+          chevron.innerHTML = '&#9650;';
+        } else {
+          if (statusEl) { statusEl.textContent = res.error || 'Not found'; statusEl.style.color = 'var(--danger)'; }
+        }
+      } catch (err) {
+        if (statusEl) { statusEl.textContent = 'Error: ' + err.message; statusEl.style.color = 'var(--danger)'; }
+      } finally {
+        reconnectBtn.disabled = false;
+        reconnectBtn.innerHTML = '&#x21bb; Reconnect Scene Camera';
+      }
     });
   }
 }

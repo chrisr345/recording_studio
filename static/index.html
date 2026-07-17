@@ -38,6 +38,10 @@
         <span id="arm1-label">Leader 1</span>
       </span>
       <span class="status-indicator">
+        <span class="dot" id="arm2-dot"></span>
+        <span id="arm2-label">Leader 2</span>
+      </span>
+      <span class="status-indicator">
         <span class="dot" id="cam-dot"></span>
         <span id="cam-label">Cameras</span>
       </span>
@@ -51,7 +55,7 @@
   <!-- ===================== CONTROL VIEW ===================== -->
   <section id="view-control" class="view active">
 
-    <!-- Camera feeds row: wrist 0, wrist 1, scene -->
+    <!-- Camera feeds row: wrist 0, wrist 1, wrist 2, scene -->
     <div class="camera-row">
       <figure class="camera-card">
         <figcaption>Wrist 0</figcaption>
@@ -64,9 +68,14 @@
         <div class="camera-overlay" id="cam-overlay-1">No signal</div>
       </figure>
       <figure class="camera-card">
-        <figcaption>Scene</figcaption>
-        <img id="cam-feed-2" class="camera-feed" src="/stream/2" alt="Scene" />
+        <figcaption>Wrist 2</figcaption>
+        <img id="cam-feed-2" class="camera-feed" src="/stream/2" alt="Wrist 2" />
         <div class="camera-overlay" id="cam-overlay-2">No signal</div>
+      </figure>
+      <figure class="camera-card">
+        <figcaption>Scene</figcaption>
+        <img id="cam-feed-3" class="camera-feed" src="/stream/3" alt="Scene" />
+        <div class="camera-overlay" id="cam-overlay-3">No signal</div>
       </figure>
     </div>
 
@@ -87,12 +96,17 @@
             <select class="cam-slot-select" id="slot-select-wrist_1"><option value="">— none —</option></select>
           </div>
           <div class="cam-slot-row">
+            <span class="cam-slot-label">Wrist 2</span>
+            <select class="cam-slot-select" id="slot-select-wrist_2"><option value="">— none —</option></select>
+          </div>
+          <div class="cam-slot-row">
             <span class="cam-slot-label">Scene</span>
             <select class="cam-slot-select" id="slot-select-scene"><option value="">— none —</option></select>
           </div>
         </div>
         <div class="cam-setup-actions">
           <button class="btn btn-sm btn-accent" id="cam-save-btn">Save Config</button>
+          <button class="btn btn-sm" id="cam-reconnect-scene-btn">&#x21bb; Reconnect Scene Camera</button>
           <span class="cam-setup-status" id="cam-setup-status"></span>
         </div>
         <div class="cam-cli-row" id="cam-cli-row" hidden>
@@ -144,6 +158,27 @@
           <span class="grip-label">Grip</span>
           <div class="grip-bar-wrap"><div class="grip-bar" id="arm1-grip-bar"></div></div>
           <span class="grip-val" id="arm1-grip-val">—</span>
+        </div>
+      </div>
+
+      <!-- ARM 2 -->
+      <div class="arm-panel" id="arm2-panel">
+        <div class="panel-header">
+          <span>YAM 2</span>
+          <span class="arm-status-badge idle" id="arm2-badge">IDLE</span>
+          <div class="arm-btns">
+            <button class="btn btn-engage btn-sm" id="arm2-engage-btn">Engage Leader</button>
+            <button class="btn btn-sm" id="arm2-disengage-btn">Disengage</button>
+          </div>
+        </div>
+        <table class="joint-table">
+          <thead><tr><th>Joint</th><th>Actual (rad)</th><th>Cmd (rad)</th></tr></thead>
+          <tbody id="arm2-joints"></tbody>
+        </table>
+        <div class="grip-row">
+          <span class="grip-label">Grip</span>
+          <div class="grip-bar-wrap"><div class="grip-bar" id="arm2-grip-bar"></div></div>
+          <span class="grip-val" id="arm2-grip-val">—</span>
         </div>
       </div>
 
@@ -244,6 +279,10 @@
                 <video id="video-wrist_1" preload="metadata"></video>
               </div>
               <div class="video-item">
+                <div class="video-label">Wrist 2</div>
+                <video id="video-wrist_2" preload="metadata"></video>
+              </div>
+              <div class="video-item">
                 <div class="video-label">Scene</div>
                 <video id="video-scene" preload="metadata"></video>
               </div>
@@ -303,6 +342,16 @@ python record_server.py \
   --arm0-channel can0 \
   --arm1-port /dev/ttyACM1 \
   --arm1-channel can1 \
+  --execute
+
+# Start (triple arm, execute mode)
+python record_server.py \
+  --arm0-port /dev/ttyACM0 \
+  --arm0-channel can0 \
+  --arm1-port /dev/ttyACM1 \
+  --arm1-channel can1 \
+  --arm2-port /dev/ttyACM2 \
+  --arm2-channel can2 \
   --execute</code></pre>
         <p>Then open <strong>http://&lt;robot-ip&gt;:5000</strong> in your browser. Find the robot IP with:</p>
         <pre><code>hostname -I | awk '{print $1}'</code></pre>

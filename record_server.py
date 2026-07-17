@@ -72,7 +72,7 @@ class SharedState:
     # Last SO-101 readings per arm, updated by control loop. Engage endpoint reads
     # these instead of calling reader.read() directly (avoids serial port race).
     last_arm_readings: list[tuple] = field(default_factory=list)  # [(arm_rad, grip)|None]
-    camera_jpegs: list[bytes] = field(default_factory=lambda: [PLACEHOLDER_JPEG] * 3)
+    camera_jpegs: list[bytes] = field(default_factory=lambda: [PLACEHOLDER_JPEG] * 4)
     recording: bool = False
     episode_frame_count: int = 0
     current_task: str = ""
@@ -239,11 +239,17 @@ def _detect_cameras() -> list[dict]:
     except Exception as exc:
         log.debug("RealSense detection failed: %s", exc)
 
-    for i in range(12):
-        sys_name = Path(f"/sys/class/video4linux/video{i}/name")
-        if not sys_name.exists():
+    # Scan all V4L2 devices via sysfs — not limited to video0–video11
+    for sys_name_path in sorted(Path("/sys/class/video4linux").glob("video*/name")):
+        dev_dir = sys_name_path.parent.name  # e.g. "video12"
+        try:
+            i = int(dev_dir[5:])  # strip "video" prefix
+        except ValueError:
             continue
-        device_name = sys_name.read_text().strip()
+        try:
+            device_name = sys_name_path.read_text().strip()
+        except Exception:
+            continue
         if "RealSense" in device_name or "Intel(R) RealSense" in device_name:
             continue
         try:
@@ -261,7 +267,37 @@ def _detect_cameras() -> list[dict]:
     return found
 
 
-CAMERA_SLOT_NAMES = ["wrist_0", "wrist_1", "scene"]
+def _find_logitech_camera() -> dict | None:
+    """Scan all V4L2 devices and return the first working Logitech camera, or None."""
+    for sys_name_path in sorted(Path("/sys/class/video4linux").glob("video*/name")):
+        dev_dir = sys_name_path.parent.name
+        try:
+            i = int(dev_dir[5:])
+        except ValueError:
+            continue
+        try:
+            device_name = sys_name_path.read_text().strip()
+        except Exception:
+            continue
+        _dn = device_name.lower()
+        if not any(k in _dn for k in ("logitech", "webcam", "c920", "c922", "c930", "brio")):
+            continue
+        try:
+            cap = cv2.VideoCapture(i)
+            if cap.isOpened():
+                ret, _ = cap.read()
+                cap.release()
+                if ret:
+                    log.info("Found Logitech camera: %s at /dev/video%d", device_name, i)
+                    return {"type": "opencv", "id": str(i), "index": i, "label": f"{device_name} (/dev/video{i})"}
+            else:
+                cap.release()
+        except Exception:
+            pass
+    return None
+
+
+CAMERA_SLOT_NAMES = ["wrist_0", "wrist_1", "wrist_2", "scene"]
 
 
 def _camera_config_path(dataset_path: str) -> Path:
@@ -289,11 +325,14 @@ def _slots_to_cli_args(slots: dict) -> str:
     parts = []
     w0 = slots.get("wrist_0")
     w1 = slots.get("wrist_1")
+    w2 = slots.get("wrist_2")
     sc = slots.get("scene")
     if w0 and w0.get("type") == "realsense":
         parts += ["--camera0-serial", w0["id"]]
     if w1 and w1.get("type") == "realsense":
         parts += ["--camera1-serial", w1["id"]]
+    if w2 and w2.get("type") == "realsense":
+        parts += ["--camera3-serial", w2["id"]]
     if sc:
         if sc.get("type") == "realsense":
             parts += ["--camera2-serial", sc["id"]]
@@ -309,10 +348,12 @@ def _current_slot_config() -> dict:
     slots = {}
     s0 = getattr(server_args, "camera0_serial", None)
     s1 = getattr(server_args, "camera1_serial", None)
+    s3 = getattr(server_args, "camera3_serial", None)
     s2 = getattr(server_args, "camera2_serial", None)
     cv_idx = getattr(server_args, "camera2_index", -1)
     slots["wrist_0"] = {"type": "realsense", "id": s0} if s0 else None
     slots["wrist_1"] = {"type": "realsense", "id": s1} if s1 else None
+    slots["wrist_2"] = {"type": "realsense", "id": s3} if s3 else None
     if s2:
         slots["scene"] = {"type": "realsense", "id": s2}
     elif cv_idx is not None and cv_idx >= 0:
@@ -458,8 +499,8 @@ def control_loop(
             camera_jpegs.append(PLACEHOLDER_JPEG)
             camera_frames_rgb.append(None)
 
-        # Pad to 3 total cameras
-        while len(camera_jpegs) < 3:
+        # Pad to 4 total cameras (wrist_0, wrist_1, wrist_2, scene)
+        while len(camera_jpegs) < 4:
             camera_jpegs.append(PLACEHOLDER_JPEG)
             camera_frames_rgb.append(None)
 
@@ -487,9 +528,9 @@ def control_loop(
                     "action": action,
                 }
 
-                # Camera keys in order: wrist_0, wrist_1, scene
-                cam_keys = ["wrist_0", "wrist_1", "scene"]
-                for cidx, rgb_frame in enumerate(camera_frames_rgb[:3]):
+                # Camera keys in order: wrist_0, wrist_1, wrist_2, scene
+                cam_keys = ["wrist_0", "wrist_1", "wrist_2", "scene"]
+                for cidx, rgb_frame in enumerate(camera_frames_rgb[:4]):
                     key = f"observation.images.{cam_keys[cidx]}"
                     if rgb_frame is not None:
                         # Ensure uint8 RGB (480, 640, 3)
@@ -574,8 +615,8 @@ def generate_mjpeg(camera_id: int, state: SharedState):
 
 @app.route("/stream/<int:camera_id>")
 def stream(camera_id: int):
-    if camera_id not in (0, 1, 2):
-        return jsonify({"error": "camera_id must be 0, 1, or 2"}), 400
+    if camera_id not in (0, 1, 2, 3):
+        return jsonify({"error": "camera_id must be 0, 1, 2, or 3"}), 400
     return Response(
         generate_mjpeg(camera_id, shared_state),
         mimetype="multipart/x-mixed-replace; boundary=frame",
@@ -824,14 +865,14 @@ def _build_episode_summary(row: dict, dataset_path: str, tasks: dict[int, str], 
         if nf.exists():
             timestamp = nf.stat().st_mtime
         else:
-            for cam_key in ("wrist_0", "wrist_1", "scene"):
+            for cam_key in ("wrist_0", "wrist_1", "wrist_2", "scene"):
                 vp = _find_video_for_episode(dataset_path, idx, cam_key)
                 if vp is not None:
                     timestamp = vp.stat().st_mtime
                     break
 
     has_video: dict[str, bool] = {}
-    for cam_key in ("wrist_0", "wrist_1", "scene"):
+    for cam_key in ("wrist_0", "wrist_1", "wrist_2", "scene"):
         has_video[cam_key] = _find_video_for_episode(dataset_path, idx, cam_key) is not None
 
     notes = _load_notes(dataset_path, idx)
@@ -889,7 +930,7 @@ def episode_detail(idx: int):
         if nf.exists():
             timestamp = nf.stat().st_mtime
         else:
-            for cam_key in ("wrist_0", "wrist_1", "scene"):
+            for cam_key in ("wrist_0", "wrist_1", "wrist_2", "scene"):
                 vp = _find_video_for_episode(ds_path, idx, cam_key)
                 if vp is not None:
                     timestamp = vp.stat().st_mtime
@@ -910,7 +951,7 @@ def episode_detail(idx: int):
 
 @app.route("/episodes/<int:idx>/video/<camera_key>")
 def episode_video(idx: int, camera_key: str):
-    if camera_key not in ("wrist_0", "wrist_1", "scene"):
+    if camera_key not in ("wrist_0", "wrist_1", "wrist_2", "scene"):
         return jsonify({"error": "Invalid camera_key"}), 400
 
     ds_path = server_args.dataset_path if server_args else "./recordings"
@@ -1018,7 +1059,7 @@ def status():
             "connected": reader is not None and teleop is not None,
         })
 
-    cam_names = ["wrist_0", "wrist_1", "scene"]
+    cam_names = ["wrist_0", "wrist_1", "wrist_2", "scene"]
     cameras_info = []
     for i, cam in enumerate(cameras_rs):
         cameras_info.append({
@@ -1074,6 +1115,40 @@ def cameras_save_config():
     cli = _slots_to_cli_args(normalized)
     log.info("Camera config saved: %s (cli: %s)", normalized, cli)
     return jsonify({"success": True, "cli_args": cli})
+
+
+@app.route("/cameras/reconnect-scene", methods=["POST"])
+def cameras_reconnect_scene():
+    """Hot-plug scene camera: scan for Logitech, open it, swap into cameras_cv live."""
+    cam_info = _find_logitech_camera()
+    if cam_info is None:
+        return jsonify({"success": False, "error": "No Logitech camera found on any /dev/video* device"}), 404
+
+    try:
+        cap = cv2.VideoCapture(cam_info["index"])
+        if not cap.isOpened():
+            cap.release()
+            return jsonify({"success": False, "error": f"Could not open /dev/video{cam_info['index']}"}), 500
+
+        if cameras_cv:
+            old = cameras_cv[0]
+            cameras_cv[0] = cap
+            if old is not None:
+                try:
+                    old.release()
+                except Exception:
+                    pass
+        else:
+            cameras_cv.append(cap)
+
+        if server_args is not None:
+            server_args.camera2_index = cam_info["index"]
+
+        log.info("Scene camera reconnected: %s", cam_info["label"])
+        return jsonify({"success": True, "camera": cam_info})
+    except Exception as exc:
+        log.exception("reconnect-scene error")
+        return jsonify({"success": False, "error": str(exc)}), 500
 
 
 # ---------------------------------------------------------------------------
@@ -1256,8 +1331,10 @@ def _init_readers_and_teleops(args: argparse.Namespace):
         arm_configs.append((0, args.arm0_port, args.arm0_channel))
     if getattr(args, "arm1_port", None):
         arm_configs.append((1, args.arm1_port, args.arm1_channel))
+    if getattr(args, "arm2_port", None):
+        arm_configs.append((2, args.arm2_port, args.arm2_channel))
 
-    # Ensure lists are sized for both possible arms (pad with None)
+    # Ensure lists are sized for all possible arms (pad with None)
     max_arm = max((ac[0] for ac in arm_configs), default=-1)
     for arm_idx in range(max_arm + 1):
         _readers.append(None)
@@ -1283,6 +1360,11 @@ def _init_readers_and_teleops(args: argparse.Namespace):
                     gains = args.arm1_gains
                 if getattr(args, "arm1_gripper_invert", None) is not None:
                     gripper_invert = args.arm1_gripper_invert
+            elif arm_i == 2:
+                if getattr(args, "arm2_gains", None) is not None:
+                    gains = args.arm2_gains
+                if getattr(args, "arm2_gripper_invert", None) is not None:
+                    gripper_invert = args.arm2_gripper_invert
             arm_args = argparse.Namespace(
                 channel=channel,
                 gains=gains,
@@ -1317,24 +1399,51 @@ def _init_cameras(args: argparse.Namespace):
     _cameras_rs: list[Any] = []
     _camera_keys: list[str] = []
 
-    # Wrist cameras 0 and 1 (RealSense)
-    for cam_i, serial_attr in enumerate(["camera0_serial", "camera1_serial"]):
+    # Wrist cameras 0, 1, and 2 (RealSense); camera3_serial maps to wrist_2
+    for cam_i, serial_attr in [(0, "camera0_serial"), (1, "camera1_serial"), (2, "camera3_serial")]:
         serial = getattr(args, serial_attr, None)
         if serial and has_rs_lib:
             try:
                 log.info("Connecting RealSense camera %d (serial %s) ...", cam_i, serial)
-                config = RealSenseCameraConfig(
-                    serial_number_or_name=serial,
-                    fps=30,
-                    width=640,
-                    height=480,
-                )
-                cam = RealSenseCamera(config)
-                cam.connect()
-                _cameras_rs.append(cam)
-                key = f"wrist_{cam_i}"
-                _camera_keys.append(key)
-                log.info("RealSense camera %d connected.", cam_i)
+                # Try full resolution first; fall back to USB-2-friendly 424×240 @ 6fps
+                cam = None
+                connected = False
+                for width, height, fps in [(640, 480, 30), (424, 240, 6)]:
+                    config = RealSenseCameraConfig(
+                        serial_number_or_name=serial,
+                        fps=fps,
+                        width=width,
+                        height=height,
+                    )
+                    cam = RealSenseCamera(config)
+                    for attempt in range(2):
+                        try:
+                            cam.connect()
+                            connected = True
+                            break
+                        except Exception as retry_exc:
+                            log.warning(
+                                "RealSense camera %d (serial %s) %dx%d@%d attempt %d/2 failed: %s",
+                                cam_i, serial, width, height, fps, attempt + 1, retry_exc,
+                            )
+                            try:
+                                cam.disconnect()
+                            except Exception:
+                                pass
+                            if attempt < 1:
+                                time.sleep(2)
+                    if connected:
+                        log.info(
+                            "RealSense camera %d connected at %dx%d@%d fps.",
+                            cam_i, width, height, fps,
+                        )
+                        break
+                if connected:
+                    _cameras_rs.append(cam)
+                    key = f"wrist_{cam_i}"
+                    _camera_keys.append(key)
+                else:
+                    _cameras_rs.append(None)
             except Exception as exc:
                 log.warning("RealSense camera %d (serial %s) failed: %s", cam_i, serial, exc)
                 _cameras_rs.append(None)
@@ -1379,8 +1488,20 @@ def _init_cameras(args: argparse.Namespace):
             log.warning("Scene OpenCV camera failed: %s", exc)
             _cameras_cv.append(None)
     else:
-        # No scene camera
-        pass
+        # No scene camera configured — auto-detect Logitech camera
+        logitech = _find_logitech_camera()
+        if logitech:
+            try:
+                cap = cv2.VideoCapture(logitech["index"])
+                if cap.isOpened():
+                    _cameras_cv.append(cap)
+                    _camera_keys.append("scene")
+                    log.info("Auto-detected scene camera: %s", logitech["label"])
+                else:
+                    cap.release()
+                    log.warning("Logitech camera found but could not open: %s", logitech["label"])
+            except Exception as exc:
+                log.warning("Auto-detected Logitech camera failed to open: %s", exc)
 
     return _cameras_rs, _cameras_cv, _camera_keys
 
@@ -1467,6 +1588,22 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--no-arm1-gripper-invert", dest="arm1_gripper_invert", action="store_false",
                         help="Disable gripper inversion on arm 1")
 
+    # Arm 2 (optional)
+    parser.add_argument("--arm2-port", default=None,
+                        help="SO-101 arm 2 serial port (omit if unused)")
+    parser.add_argument("--arm2-channel", default="can2",
+                        help="YAM arm 2 CAN channel")
+    parser.add_argument(
+        "--arm2-gains", type=float, nargs=5,
+        default=None,
+        metavar=("J1", "J2", "J3", "J4", "J5"),
+        help="Per-joint gains for arm 2 (defaults to --gains if omitted)",
+    )
+    parser.add_argument("--arm2-gripper-invert", action="store_true", default=None,
+                        help="Invert gripper on arm 2 (defaults to --gripper-invert if omitted)")
+    parser.add_argument("--no-arm2-gripper-invert", dest="arm2_gripper_invert", action="store_false",
+                        help="Disable gripper inversion on arm 2")
+
     # Cameras
     parser.add_argument("--camera0-serial", default="353322271521",
                         help="Wrist camera 0 RealSense serial")
@@ -1476,6 +1613,8 @@ def _build_parser() -> argparse.ArgumentParser:
                         help="Scene camera RealSense serial (optional)")
     parser.add_argument("--camera2-index", type=int, default=-1,
                         help="Scene camera OpenCV index (-1 = none)")
+    parser.add_argument("--camera3-serial", default=None,
+                        help="Wrist camera 2 RealSense serial (arm2/can2)")
 
     # Robot control
     parser.add_argument("--execute", action="store_true",
@@ -1541,6 +1680,12 @@ def main():
         if s and s.get("type") == "realsense":
             args.camera1_serial = s["id"]
             log.info("camera_config.json: wrist_1 → RealSense %s", s["id"])
+
+    if _cam_slots.get("wrist_2") and _arg_was_default("camera3_serial"):
+        s = _cam_slots["wrist_2"]
+        if s and s.get("type") == "realsense":
+            args.camera3_serial = s["id"]
+            log.info("camera_config.json: wrist_2 → RealSense %s", s["id"])
 
     if _cam_slots.get("scene") and _arg_was_default("camera2_serial") and _arg_was_default("camera2_index"):
         s = _cam_slots["scene"]
